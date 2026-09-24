@@ -76,6 +76,9 @@ Override `DB_PATH`/`CACHE_ROOT` via `VULKAN_DOCS_INDEX_DB_PATH` /
 
 ### Running it on a schedule (systemd timer)
 
+`deploy_box.py` (see "Deploying the hosted instance" below) writes this
+timer/service pair for you; shown here for reference:
+
 ```
 # /etc/systemd/system/vulkan-docs-index-fetch.service
 [Unit]
@@ -83,7 +86,7 @@ Description=Fetch the latest Vulkan docs MCP index
 
 [Service]
 Type=oneshot
-ExecStart=/home/%i/.venvs/vulkan-docs-index/bin/python3 /path/to/docs-index/fetch_release.py KhronosGroup/Vulkan-Site
+ExecStart=/opt/vulkan-docs-index/venv/bin/python3 /opt/vulkan-docs-index/mcp-Vulkan/docs-index/fetch_release.py KhronosGroup/Vulkan-Site
 ExecStartPost=/bin/systemctl try-restart vulkan-docs-mcp.service
 
 # /etc/systemd/system/vulkan-docs-index-fetch.timer
@@ -144,10 +147,29 @@ Auth follows the same convention as the meeting-index servers: an nginx
 to `127.0.0.1` only. See meeting-index's README for the rotation procedure
 if this ever needs to share or diverge from that token.
 
-Deployment on the box (systemd service + nginx block + firewall rule) is
-not scripted here -- it's a one-time manual setup mirroring
-meeting-index's existing `meeting-index` / `meeting-index-vulkan` systemd
-units and nginx sites, done directly on `llama-api-0klz`.
+### Deploying the hosted instance
+
+Two scripts, split by where each needs to run:
+
+```sh
+# On the box (needs root; prompts interactively for the shared bearer
+# token via getpass -- never hardcoded, never a CLI arg):
+gcloud compute ssh llama-api-0klz --project=llm-chat-trials-2025 --zone=us-west1-a
+sudo python3 /opt/vulkan-docs-index/mcp-Vulkan/docs-index/deploy_box.py
+# (first run: clone the repo somewhere on the box first, or scp deploy_box.py over)
+
+# From an operator machine (needs project-level compute permissions the
+# box's own service account doesn't have):
+python3 deploy_firewall.py
+```
+
+`deploy_box.py` creates a dedicated `vulkan-docs-index` system user,
+clones `mcp-Vulkan` to `/opt/vulkan-docs-index`, sets up a venv, and
+installs the `vulkan-docs-index-fetch` timer/service and
+`vulkan-docs-mcp` service + nginx block above -- mirroring the existing
+`meeting-index-vulkan-mcp` / `meeting-index-vulkan-build` units on the
+same box. Idempotent: safe to re-run (e.g. after a `git push` to pick up
+changes to this directory).
 
 ## Module map
 
