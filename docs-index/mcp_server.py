@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""MCP server over the Vulkan docs index (man pages + Antora site-docs).
+"""MCP server over the Vulkan docs index (docs.vulkan.org, all components,
+including the Vulkan-Docs man pages via the refpages component).
 
 A thin wrapper opening the (read-only) index built by build_index.py and
 calling into store.py. Two ways to run it:
@@ -37,13 +38,13 @@ from config import DB_PATH
 server = MCPServer(
     name="vulkan-docs",
     instructions=(
-        "Query the Vulkan documentation corpus (Vulkan-Docs man pages plus "
-        "the full Antora-built docs.vulkan.org site: guide, samples, GLSL, "
-        "tutorial). Prefer search_docs for open-ended topic questions, then "
-        "get_page for the full text of a specific result's rel_path. Every "
-        "result carries its source ('man' or 'site-docs') and, where "
-        "known, its published URL -- cite that URL rather than the raw "
-        "Markdown when pointing a user at documentation."
+        "Query the full Vulkan documentation corpus built from "
+        "docs.vulkan.org: guide, samples, GLSL, tutorial, and the "
+        "Vulkan-Docs man pages (component='refpages'). Prefer search_docs "
+        "for open-ended topic questions, then get_page for the full text "
+        "of a specific result's rel_path. Cite each result's URL, where "
+        "known, rather than the raw Markdown when pointing a user at "
+        "documentation."
     ),
 )
 
@@ -79,13 +80,14 @@ def get_page(rel_path: str) -> dict | None:
 
 
 @server.tool()
-def list_pages(source: str | None = None, limit: int = 100) -> list[dict]:
-    """Browse indexed pages by rel_path, optionally filtered to
-    source='man' or source='site-docs'. Use search_docs instead for
-    anything topic-shaped -- this is for browsing/discovery.
+def list_pages(component: str | None = None, limit: int = 100) -> list[dict]:
+    """Browse indexed pages by rel_path, optionally filtered to an Antora
+    component (e.g. component='refpages' for man pages, or 'guide',
+    'samples', 'glsl', 'tutorial'). Use search_docs instead for anything
+    topic-shaped -- this is for browsing/discovery.
     """
     with store.connect(_db_path()) as conn:
-        return store.list_pages(conn, source=source, limit=limit)
+        return store.list_pages(conn, component=component, limit=limit)
 
 
 @server.tool()

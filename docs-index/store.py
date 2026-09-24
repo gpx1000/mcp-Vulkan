@@ -20,11 +20,10 @@ CREATE TABLE IF NOT EXISTS meta (
 
 CREATE TABLE IF NOT EXISTS pages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    rel_path TEXT NOT NULL UNIQUE,   -- path within the built corpus, e.g. "man/vkCreateInstance.md"
-    source TEXT NOT NULL,            -- 'man' | 'site-docs'
+    rel_path TEXT NOT NULL UNIQUE,   -- path within the built corpus, e.g. "refpages/latest/vkcreateinstance(3).md"
     title TEXT NOT NULL,
-    component TEXT,                  -- Antora component (site-docs only)
-    version TEXT,                    -- Antora version (site-docs only)
+    component TEXT,                  -- Antora component, e.g. "guide", "refpages", "samples"
+    version TEXT,                    -- Antora version, e.g. "latest"
     url TEXT,                        -- published site URL, where known
     keywords TEXT,
     content TEXT NOT NULL
@@ -35,7 +34,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
     content,
     keywords,
     rel_path UNINDEXED,
-    source UNINDEXED,
     url UNINDEXED
 );
 """
@@ -60,7 +58,6 @@ def upsert_page(
     conn: sqlite3.Connection,
     *,
     rel_path: str,
-    source: str,
     title: str,
     content: str,
     component: str | None = None,
@@ -70,19 +67,19 @@ def upsert_page(
 ) -> None:
     conn.execute(
         """
-        INSERT INTO pages (rel_path, source, title, component, version, url, keywords, content)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO pages (rel_path, title, component, version, url, keywords, content)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(rel_path) DO UPDATE SET
-            source=excluded.source, title=excluded.title, component=excluded.component,
+            title=excluded.title, component=excluded.component,
             version=excluded.version, url=excluded.url, keywords=excluded.keywords,
             content=excluded.content
         """,
-        (rel_path, source, title, component, version, url, keywords, content),
+        (rel_path, title, component, version, url, keywords, content),
     )
     conn.execute("DELETE FROM pages_fts WHERE rel_path = ?", (rel_path,))
     conn.execute(
-        "INSERT INTO pages_fts (title, content, keywords, rel_path, source, url) VALUES (?, ?, ?, ?, ?, ?)",
-        (title, content, keywords or "", rel_path, source, url or ""),
+        "INSERT INTO pages_fts (title, content, keywords, rel_path, url) VALUES (?, ?, ?, ?, ?)",
+        (title, content, keywords or "", rel_path, url or ""),
     )
     conn.commit()
 
@@ -106,20 +103,18 @@ def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
 
 
 def search_docs(conn: sqlite3.Connection, query: str, limit: int = 20) -> list[dict]:
-    """Full-text search across every indexed page (Vulkan man pages +
-    Antora site-docs). `query` uses SQLite FTS5 syntax (plain words are
-    ANDed; use OR/quotes/column filters like `title:foo` as needed).
+    """Full-text search across every indexed page (Vulkan man pages under
+    refpages/, plus every other Antora component: guide, samples, GLSL,
+    tutorial). `query` uses SQLite FTS5 syntax (plain words are ANDed; use
+    OR/quotes/column filters like `title:foo` as needed).
     """
     rows = conn.execute(
-        """SELECT rel_path, source, url,
+        """SELECT rel_path, url,
                   snippet(pages_fts, 1, '>>>', '<<<', '...', 24) AS snip
            FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT ?""",
         (query, limit),
     ).fetchall()
-    return [
-        {"rel_path": r["rel_path"], "source": r["source"], "url": r["url"], "snippet": r["snip"]}
-        for r in rows
-    ]
+    return [{"rel_path": r["rel_path"], "url": r["url"], "snippet": r["snip"]} for r in rows]
 
 
 def get_page(conn: sqlite3.Connection, rel_path: str) -> dict | None:
@@ -128,7 +123,6 @@ def get_page(conn: sqlite3.Connection, rel_path: str) -> dict | None:
         return None
     return {
         "rel_path": row["rel_path"],
-        "source": row["source"],
         "title": row["title"],
         "component": row["component"],
         "version": row["version"],
@@ -138,14 +132,14 @@ def get_page(conn: sqlite3.Connection, rel_path: str) -> dict | None:
     }
 
 
-def list_pages(conn: sqlite3.Connection, source: str | None = None, limit: int = 100) -> list[dict]:
-    if source:
+def list_pages(conn: sqlite3.Connection, component: str | None = None, limit: int = 100) -> list[dict]:
+    if component:
         rows = conn.execute(
-            "SELECT rel_path, source, title, url FROM pages WHERE source = ? ORDER BY rel_path LIMIT ?",
-            (source, limit),
+            "SELECT rel_path, component, title, url FROM pages WHERE component = ? ORDER BY rel_path LIMIT ?",
+            (component, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT rel_path, source, title, url FROM pages ORDER BY rel_path LIMIT ?", (limit,)
+            "SELECT rel_path, component, title, url FROM pages ORDER BY rel_path LIMIT ?", (limit,)
         ).fetchall()
-    return [{"rel_path": r["rel_path"], "source": r["source"], "title": r["title"], "url": r["url"]} for r in rows]
+    return [{"rel_path": r["rel_path"], "component": r["component"], "title": r["title"], "url": r["url"]} for r in rows]

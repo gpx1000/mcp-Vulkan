@@ -2,11 +2,12 @@
 """Build the Vulkan docs SQLite/FTS5 index from a combined_output directory.
 
 `combined_output` is produced by Vulkan-Site's ci.yml `generate-man-pages`
-job (opt-in, Generate_Man_Pages=true): Vulkan-Docs man pages converted to
-Markdown under `man/`, plus Antora's per-page Markdown dump (see
-khronosgroup/antora-lunr-extension's `createMarkdownIndexFile`) under
-`site-docs/<component>/<version>/*.md`. Both are plain Markdown; this
-script never touches HTML.
+job (opt-in, Generate_Man_Pages=true): it's Antora's per-page Markdown dump
+(see khronosgroup/antora-lunr-extension's `createMarkdownIndexFile`), one
+file per `<component>/<version>/*.md`. This already includes a `refpages/`
+component -- the Vulkan-Docs man pages, HTML converted to Antora xrefs --
+via that component's start_paths in antora-playbook.yml, so there's no
+separate man-page build step to index here.
 
 Usage:
     python3 build_index.py --source combined_output --db vulkan-docs-index.db [--source-ref <sha>]
@@ -39,7 +40,7 @@ _METADATA_RE = re.compile(
 _META_FIELD_RE = re.compile(r"^- \*\*(?P<key>[^*]+)\*\*: (?P<value>.*)$", re.MULTILINE)
 
 
-def _parse_site_docs_page(text: str) -> dict | None:
+def _parse_page(text: str) -> dict | None:
     """Parses the fixed layout createMarkdownIndexFile() writes (see
     khronosgroup/antora-lunr-extension's lib/generate-index.js):
     `# Title` / `## Metadata` (Component/Version/URL/Keywords) / optional
@@ -61,32 +62,16 @@ def _parse_site_docs_page(text: str) -> dict | None:
     }
 
 
-def _parse_man_page(text: str) -> dict:
-    """Man pages (see Vulkan-Site's html-to-markdown.js output) have no
-    metadata block -- just `# Title` followed by the converted body.
-    """
-    lines = text.split("\n", 1)
-    title = lines[0].lstrip("#").strip() if lines[0].startswith("#") else lines[0].strip()
-    body = lines[1].strip() if len(lines) > 1 else ""
-    return {"title": title or "Untitled", "component": "man-pages", "version": None, "url": None, "keywords": None, "content": body}
-
-
 def _iter_source_files(source_dir: str):
-    man_dir = os.path.join(source_dir, "man")
-    if os.path.isdir(man_dir):
-        for name in sorted(os.listdir(man_dir)):
-            if name.endswith(".md"):
-                yield "man", os.path.join("man", name), os.path.join(man_dir, name)
-
     for root, _dirs, files in os.walk(source_dir):
-        if root == source_dir or root.startswith(man_dir):
+        if root == source_dir:
             continue
         for name in sorted(files):
             if not name.endswith(".md"):
                 continue
             abs_path = os.path.join(root, name)
             rel_path = os.path.relpath(abs_path, source_dir)
-            yield "site-docs", rel_path, abs_path
+            yield rel_path, abs_path
 
 
 def main() -> int:
@@ -108,30 +93,27 @@ def main() -> int:
     skipped = 0
     with connect(args.db) as conn:
         init_schema(conn)
-        for source, rel_path, abs_path in _iter_source_files(args.source):
+        for rel_path, abs_path in _iter_source_files(args.source):
             with open(abs_path, encoding="utf-8") as f:
                 text = f.read()
             if not text.strip():
                 skipped += 1
                 continue
 
-            if source == "man":
-                parsed = _parse_man_page(text)
-            else:
-                parsed = _parse_site_docs_page(text)
-                if parsed is None:
-                    # Format drift: still index it, untitled/unstructured,
-                    # rather than silently dropping the page.
-                    parsed = {
-                        "title": os.path.splitext(os.path.basename(rel_path))[0],
-                        "component": None,
-                        "version": None,
-                        "url": None,
-                        "keywords": None,
-                        "content": text.strip(),
-                    }
+            parsed = _parse_page(text)
+            if parsed is None:
+                # Format drift: still index it, untitled/unstructured,
+                # rather than silently dropping the page.
+                parsed = {
+                    "title": os.path.splitext(os.path.basename(rel_path))[0],
+                    "component": None,
+                    "version": None,
+                    "url": None,
+                    "keywords": None,
+                    "content": text.strip(),
+                }
 
-            upsert_page(conn, rel_path=rel_path, source=source, **parsed)
+            upsert_page(conn, rel_path=rel_path, **parsed)
             indexed += 1
 
         set_meta(conn, "built_at", datetime.datetime.now(datetime.timezone.utc).isoformat())

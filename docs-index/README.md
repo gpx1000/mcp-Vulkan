@@ -16,15 +16,23 @@ push/PR build) that produces a `combined_output` directory:
 
 ```
 combined_output/
-  man/*.md                          # Vulkan-Docs man pages, HTML->Markdown
-  site-docs/<component>/<version>/*.md   # Antora site-docs, one file per page
+  <component>/<version>/*.md   # one file per Antora-built page
 ```
 
-`site-docs/**/*.md` is written by `khronosgroup/antora-lunr-extension`'s
-`createMarkdownIndexFile()` in a fixed layout (`# Title` / `## Metadata` /
-optional `## Table of Contents` / `## Content`) -- `build_index.py`'s
-`_parse_site_docs_page()` depends on that exact layout; if the extension's
-output format ever changes, update the regex there, not just this doc.
+This is Antora's per-page Markdown dump, written by
+`khronosgroup/antora-lunr-extension`'s `createMarkdownIndexFile()` in a
+fixed layout (`# Title` / `## Metadata` / optional `## Table of Contents`
+/ `## Content`) -- `build_index.py`'s `_parse_page()` depends on that
+exact layout; if the extension's output format ever changes, update the
+regex there, not just this doc. Components include `guide`, `samples`,
+`glsl`, `tutorial`, and -- notably -- `refpages`: the Vulkan-Docs man
+pages, already HTML-converted to Antora xrefs as part of the ordinary
+site build (that component's `start_paths` in `antora-playbook.yml`
+already point at Vulkan-Docs' `antora/refpages`). Earlier drafts of this
+job ran `make manhtmlpages` in Vulkan-Docs a second time and converted
+that output separately -- redundant with `refpages/` and much slower (see
+the review discussion on Vulkan-Site PR #232) -- dropped once that became
+clear.
 
 That same CI job also builds this index directly (`build_index.py`) and
 uploads it as the `vulkanDocsIndex` workflow artifact. `ci-deploy.yml`,
@@ -169,10 +177,10 @@ installs the `vulkan-docs-index-fetch` timer/service and
 - No incremental build -- every CI run that opts in rebuilds the whole
   index from scratch. Fine at this corpus's size; revisit only if build
   time becomes a problem.
-- `_parse_site_docs_page()`'s regex is tied to
-  `createMarkdownIndexFile()`'s exact output layout. A page that doesn't
-  match falls back to being indexed untitled/unstructured rather than
-  being dropped, but that's a degraded result, not a substitute for
-  keeping the regex in sync with the extension.
+- `_parse_page()`'s regex is tied to `createMarkdownIndexFile()`'s exact
+  output layout. A page that doesn't match falls back to being indexed
+  untitled/unstructured rather than being dropped, but that's a degraded
+  result, not a substitute for keeping the regex in sync with the
+  extension.
 - No embeddings/vector search -- FTS5 full-text only. Revisit if keyword
   search proves insufficient for how this is actually queried.
