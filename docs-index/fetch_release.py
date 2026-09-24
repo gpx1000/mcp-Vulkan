@@ -12,8 +12,7 @@ Vulkan-Site is public. Writes atomically (download to a temp file, then
 rename over DB_PATH) so a server reading the index mid-fetch never sees a
 partial file. Exits 0 with a warning on any failure rather than failing
 the caller -- a systemd timer running this should treat "no update this
-time" as a soft-skip, not an error, the same way meeting-index's
-fetch_index.py does.
+time" as a soft-skip, not an error.
 """
 
 from __future__ import annotations

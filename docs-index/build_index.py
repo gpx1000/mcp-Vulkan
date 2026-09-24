@@ -11,9 +11,9 @@ script never touches HTML.
 Usage:
     python3 build_index.py --source combined_output --db vulkan-docs-index.db [--source-ref <sha>]
 
-Always a full rebuild (drop-and-recreate), unlike meeting-index's
-incremental build: this indexes a freshly-built CI artifact each time, not
-a git-tracked wiki clone with history to diff against.
+Always a full rebuild (drop-and-recreate) -- this indexes a freshly-built
+CI artifact each time, not a git-tracked clone with history to diff
+against.
 """
 
 from __future__ import annotations

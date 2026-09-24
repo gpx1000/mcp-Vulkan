@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """MCP server over the Vulkan docs index (man pages + Antora site-docs).
 
-Same shape as ~/WebstormProjects/openxr/maintainer-scripts/meeting-index/mcp_server.py
--- a thin wrapper opening the (read-only) index built by build_index.py and
+A thin wrapper opening the (read-only) index built by build_index.py and
 calling into store.py. Two ways to run it:
 
 - Local/stdio (default) -- for a local MCP client config:
@@ -18,10 +17,8 @@ calling into store.py. Two ways to run it:
 
 - Remote/HTTP -- set MCP_TRANSPORT=streamable-http (MCP_HOST/MCP_PORT
   override the 127.0.0.1:8000 default). Binds to localhost only and does
-  no authentication of its own -- meant to sit behind a reverse proxy that
-  terminates TLS and checks a bearer token, same pattern as the
-  meeting-index servers on the shared Khronos GCE box. Never bind this
-  directly to a public interface.
+  no authentication of its own -- meant to sit behind a reverse proxy.
+  Never bind this directly to a public interface.
 """
 
 from __future__ import annotations

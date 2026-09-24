@@ -1,10 +1,5 @@
-"""Configuration for the Vulkan docs MCP index.
-
-Mirrors the shape of ~/WebstormProjects/openxr/maintainer-scripts/meeting-index/config.py
-(one process/index per corpus, cache dir resolution, env-var overrides) even
-though this index only ever serves one corpus (the Vulkan docs site + man
-pages) -- keeping the same conventions makes this directory readable by
-anyone already familiar with meeting-index.
+"""Configuration for the Vulkan docs MCP index: cache dir and DB path
+resolution, both overridable via environment variables.
 """
 
 from __future__ import annotations

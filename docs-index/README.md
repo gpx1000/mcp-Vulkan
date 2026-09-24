@@ -2,16 +2,11 @@
 
 Builds a local, queryable index of the Vulkan documentation corpus (every
 Vulkan-Docs man page, plus every page of the Antora-built docs.vulkan.org
-site: guide, samples, GLSL, tutorial) and serves it to an MCP client. Same
-design as `~/WebstormProjects/openxr/maintainer-scripts/meeting-index`
-(SQLite + FTS5, build and query as separate steps, stdio or streamable-HTTP
-transport) -- read that directory's README for the fuller design rationale
-if anything here is unclear.
-
-Unlike meeting-index, this corpus has no member-confidential content and no
-"evidence tiers" (votes, action items, approval status) -- it's public docs
-site content, so the schema is a single flat `pages` table (see
-`store.py`).
+site: guide, samples, GLSL, tutorial) and serves it to an MCP client.
+SQLite + FTS5, build and query as separate steps, stdio or
+streamable-HTTP transport. Public docs site content only -- no
+confidential data, no access control needed on the data itself -- so the
+schema is a single flat `pages` table (see `store.py`).
 
 ## Where the source content comes from
 
@@ -37,8 +32,8 @@ which only runs against a trusted push-to-main build (see that file's
 comments on the fork-safe `workflow_run` pattern), then publishes it as a
 GitHub Release asset (`vulkan-docs-index-latest` tag) on the Vulkan-Site
 repo for this directory's `fetch_release.py` to pick up. Nothing in this
-directory ever builds the index from a live clone the way meeting-index's
-`build_index.py` does -- Vulkan-Site's CI is the only producer.
+directory ever builds the index from a live clone -- Vulkan-Site's CI is
+the only producer.
 
 ## One-time setup
 
@@ -59,7 +54,7 @@ Always a full rebuild (drop-and-recreate) -- there's no incremental mode,
 since the input is a freshly-built CI artifact each time, not a git clone
 with history to diff against.
 
-## Fetching the published index (what the box actually runs)
+## Fetching the published index
 
 ```sh
 ~/.venvs/vulkan-docs-index/bin/python3 fetch_release.py KhronosGroup/Vulkan-Site
@@ -69,14 +64,14 @@ Downloads the latest `vulkan-docs-index-latest` release asset over plain
 HTTPS (no token needed -- Vulkan-Site is public) and atomically swaps it
 into place at `DB_PATH`. Exits 0 with a warning on any failure (no release
 published yet, network error) rather than failing the caller -- treat it
-as a soft-skip, same as meeting-index's `fetch_index.py`.
+as a soft-skip.
 
 Override `DB_PATH`/`CACHE_ROOT` via `VULKAN_DOCS_INDEX_DB_PATH` /
 `VULKAN_DOCS_INDEX_CACHE_DIR` (see `config.py`).
 
 ### Running it on a schedule (systemd timer)
 
-`deploy_box.py` (see "Deploying the hosted instance" below) writes this
+`deploy_box.py` (see "Deploying a hosted instance" below) writes this
 timer/service pair for you; shown here for reference:
 
 ```
@@ -124,54 +119,37 @@ other systemd units without a polkit rule neither service needs.)
 ```
 
 **Remote/HTTP** -- set `MCP_TRANSPORT=streamable-http` (`MCP_HOST`/`MCP_PORT`
-override the `127.0.0.1:8000` default). Binds to localhost only, no
-authentication of its own -- sits behind nginx, same pattern as the
-meeting-index servers on the shared Khronos GCE box (`llama-api-0klz`,
-project `llm-chat-trials-2025`).
+override the `127.0.0.1:8000` default). Binds to localhost only. The
+nginx block in front of it has no bearer-token check -- everything this
+index serves is built from Vulkan-Site, a public repo, so there's no
+confidentiality boundary to enforce.
 
 ### Hosted instance
 
-| What | URL |
-|---|---|
-| Vulkan docs MCP | `http://34.169.184.49:11500/mcp` |
+Deliberately **not published in this repo**: the endpoint is a bare IP +
+port today, not a stable hostname, and isn't yet validated as useful
+enough to be worth advertising. Once there's an actual DNS name for it
+and it's proven out, this section will list it. Until then, ask Steven
+for the current endpoint.
 
-Port **11500** was chosen deliberately non-adjacent to the meeting-minutes
-WG servers' sequence (11434 ollama, 11436 openxr-meeting-minutes, 11437
-vulkan-meeting-minutes; 11438 reserved for the next WG meeting-minutes
-server) -- this is a different kind of server (docs corpus, not WG
-minutes), so it starts its own block rather than packing into that
-sequence. See that box's firewall rules
-(`gcloud compute firewall-rules list --project=llm-chat-trials-2025`) --
-each exposed port has its own named rule; there is no open range.
-
-Auth follows the same convention as the meeting-index servers: an nginx
-`Authorization: Bearer <token>` check in front of the process, which binds
-to `127.0.0.1` only. See meeting-index's README for the rotation procedure
-if this ever needs to share or diverge from that token.
-
-### Deploying the hosted instance
+### Deploying a hosted instance
 
 Two scripts, split by where each needs to run:
 
 ```sh
-# On the box (needs root; prompts interactively for the shared bearer
-# token via getpass -- never hardcoded, never a CLI arg):
-gcloud compute ssh llama-api-0klz --project=llm-chat-trials-2025 --zone=us-west1-a
-sudo python3 /opt/vulkan-docs-index/mcp-Vulkan/docs-index/deploy_box.py
-# (first run: clone the repo somewhere on the box first, or scp deploy_box.py over)
+# On the target host (as root):
+sudo python3 deploy_box.py
 
-# From an operator machine (needs project-level compute permissions the
-# box's own service account doesn't have):
-python3 deploy_firewall.py
+# From an operator machine (needs project-level cloud permissions the
+# target host's own service account doesn't have):
+python3 deploy_firewall.py --project <your-gcp-project-id>
 ```
 
 `deploy_box.py` creates a dedicated `vulkan-docs-index` system user,
 clones `mcp-Vulkan` to `/opt/vulkan-docs-index`, sets up a venv, and
 installs the `vulkan-docs-index-fetch` timer/service and
-`vulkan-docs-mcp` service + nginx block above -- mirroring the existing
-`meeting-index-vulkan-mcp` / `meeting-index-vulkan-build` units on the
-same box. Idempotent: safe to re-run (e.g. after a `git push` to pick up
-changes to this directory).
+`vulkan-docs-mcp` service + nginx block above. Idempotent: safe to re-run
+(e.g. after a `git push` to pick up changes to this directory).
 
 ## Module map
 
@@ -181,7 +159,9 @@ changes to this directory).
 | `store.py` | SQLite + FTS5 schema and the query API both consumers call |
 | `build_index.py` | Parses a `combined_output` directory into the index -- run by Vulkan-Site's CI |
 | `mcp_server.py` | MCP server (stdio or HTTP) wrapping `store.py`'s query API |
-| `fetch_release.py` | Downloads the published index from a GitHub Release -- run by the box's systemd timer |
+| `fetch_release.py` | Downloads the published index from a GitHub Release -- run by a systemd timer on the host |
+| `deploy_box.py` | Host-side setup (system user, venv, systemd units, nginx block) |
+| `deploy_firewall.py` | Opens the public port on the host's cloud project -- run from an operator machine, not the host |
 | `requirements.txt` | `mcp`, `uvicorn` |
 
 ## Known limitations (v1)
@@ -194,6 +174,5 @@ changes to this directory).
   match falls back to being indexed untitled/unstructured rather than
   being dropped, but that's a degraded result, not a substitute for
   keeping the regex in sync with the extension.
-- No embeddings/vector search -- FTS5 full-text only, same as
-  meeting-index. Revisit if keyword search proves insufficient for how
-  this is actually queried.
+- No embeddings/vector search -- FTS5 full-text only. Revisit if keyword
+  search proves insufficient for how this is actually queried.

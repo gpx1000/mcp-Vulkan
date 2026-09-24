@@ -1,26 +1,19 @@
 #!/usr/bin/env python3
-"""Deploys the Vulkan docs MCP server on llama-api-0klz, mirroring the
-existing meeting-index-vulkan-mcp / meeting-index-openxr-mcp setup on the
-same box.
+"""Deploys the Vulkan docs MCP server on its host.
 
-Run this ON THE BOX (ssh in first):
+Run this ON THE TARGET HOST, as root (e.g. via `sudo python3 deploy_box.py`
+over an ssh session to wherever this is hosted).
 
-    gcloud compute ssh llama-api-0klz --project=llm-chat-trials-2025 --zone=us-west1-a
-    # then, on the box:
-    sudo python3 deploy_box.py
-
-Prompts interactively for the shared bearer token (same one ollama /
-meeting-index / meeting-index-vulkan already use on this box) via
-getpass -- never hardcoded, never passed as a CLI arg (which would land in
-shell history / `ps`). Idempotent: safe to re-run. Firewall rule creation
-is deliberately NOT part of this script -- see deploy_firewall.py, meant
-to run from an operator's own machine with project-level compute
-permissions, not from the box's own service account.
+No bearer-token check: everything this index serves is built from
+Vulkan-Site, a public repo, so there's no confidentiality boundary to
+enforce. Idempotent: safe to re-run. Firewall/network-level exposure is
+deliberately NOT part of this script -- see deploy_firewall.py, meant to
+run from an operator's own machine with the relevant cloud-project
+permissions, not from the target host's own service account.
 """
 
 from __future__ import annotations
 
-import getpass
 import os
 import subprocess
 import sys
@@ -143,14 +136,16 @@ WantedBy=default.target
     run(["systemctl", "enable", "--now", "vulkan-docs-mcp.service"])
 
     print("== 6) nginx ==")
-    api_token = getpass.getpass("Shared AI-trials bearer token (same one ollama/meeting-index use): ")
+    # No bearer-token check: everything this index serves comes from
+    # Vulkan-Site, a public repo, so there's no confidentiality boundary
+    # to enforce here. The endpoint itself (host IP + PUBLIC_PORT) is
+    # deliberately not written into any file this repo checks in -- see
+    # README.md's "Hosted instance" section for why.
     write_root_file(
         "/etc/nginx/sites-enabled/vulkan-docs-mcp",
         f"""server {{
   listen 0.0.0.0:{PUBLIC_PORT};
-  set $api_token '{api_token}';
   location / {{
-    if ($http_authorization != "Bearer $api_token") {{ return 401 '{{"error": "Unauthorized"}}'; }}
     proxy_pass http://127.0.0.1:{INTERNAL_PORT};
     proxy_set_header Host 127.0.0.1:{INTERNAL_PORT};
     proxy_set_header X-Real-IP $remote_addr;
@@ -164,7 +159,7 @@ WantedBy=default.target
     run(["nginx", "-t"])
     run(["systemctl", "reload", "nginx"])
 
-    print(f"\nDone. Verify from the box: curl -H \"Authorization: Bearer <token>\" http://localhost:{PUBLIC_PORT}/mcp")
+    print(f"\nDone. Verify from the box: curl http://localhost:{PUBLIC_PORT}/mcp")
     print("Firewall rule is separate -- see deploy_firewall.py, run from an operator machine.")
     return 0
 

@@ -1,11 +1,9 @@
 """SQLite + FTS5 store and query library for the Vulkan docs index.
 
 Shared by build_index.py (writer) and mcp_server.py (reader). Neither of
-those files should touch SQL directly -- the schema only exists here.
-Structurally mirrors meeting-index/store.py's pattern (see that file for
-the fuller design rationale) but with one flat `pages` table instead of
-meeting-index's structured discussion/vote/action-item tables, since a
-docs corpus has no equivalent evidence tiers -- every page is just a page.
+those files should touch SQL directly -- the schema only exists here. One
+flat `pages` table: a docs corpus has no evidence tiers to model, every
+page is just a page.
 """
 
 from __future__ import annotations
