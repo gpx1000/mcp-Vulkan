@@ -62,6 +62,11 @@ def main() -> int:
     print("== 2) Clone/update repo ==")
     os.makedirs(INSTALL_ROOT, exist_ok=True)
     repo_dir = os.path.join(INSTALL_ROOT, "mcp-Vulkan")
+    # This whole script runs as root, but the repo directory ends up
+    # owned by the unprivileged service user (see the chown below) --
+    # without this, git refuses to touch it on every run after the first
+    # ("detected dubious ownership").
+    run(["git", "config", "--global", "--add", "safe.directory", repo_dir])
     if not os.path.isdir(os.path.join(repo_dir, ".git")):
         run(["git", "clone", "--depth", "1", REPO_URL, repo_dir])
     else:
