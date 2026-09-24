@@ -87,7 +87,6 @@ Description=Fetch the latest Vulkan docs MCP index
 [Service]
 Type=oneshot
 ExecStart=/opt/vulkan-docs-index/venv/bin/python3 /opt/vulkan-docs-index/mcp-Vulkan/docs-index/fetch_release.py KhronosGroup/Vulkan-Site
-ExecStartPost=/bin/systemctl try-restart vulkan-docs-mcp.service
 
 # /etc/systemd/system/vulkan-docs-index-fetch.timer
 [Unit]
@@ -101,10 +100,13 @@ Persistent=true
 WantedBy=timers.target
 ```
 
-The `ExecStartPost` restart only matters because `mcp_server.py` opens a
-fresh SQLite connection per request rather than caching one at startup, so
-in practice a restart isn't strictly required for it to see a new file --
-harmless either way, and it guarantees no stale connection ever lingers.
+No restart of `vulkan-docs-mcp.service` after a fetch: `mcp_server.py`
+opens a fresh SQLite connection per request rather than caching one at
+startup, so it picks up a newly-fetched file on its very next query with
+no restart needed. (An earlier draft had the fetch service try to restart
+the MCP service via `ExecStartPost` -- dropped because the fetch service
+runs as the unprivileged `vulkan-docs-index` user, which can't control
+other systemd units without a polkit rule neither service needs.)
 
 ## Querying: MCP server (interactive)
 

@@ -92,7 +92,6 @@ User={SERVICE_USER}
 Group={SERVICE_USER}
 Environment="VULKAN_DOCS_INDEX_CACHE_DIR={cache_dir}"
 ExecStart={venv_dir}/bin/python3 {repo_dir}/docs-index/fetch_release.py KhronosGroup/Vulkan-Site
-ExecStartPost=/bin/systemctl try-restart vulkan-docs-mcp.service
 """,
     )
     write_root_file(
