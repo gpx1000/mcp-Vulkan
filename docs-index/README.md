@@ -165,12 +165,34 @@ installs the `vulkan-docs-index-fetch` timer/service and
 |---|---|
 | `config.py` | Cache dir / DB path resolution |
 | `store.py` | SQLite + FTS5 schema and the query API both consumers call |
-| `build_index.py` | Parses a `combined_output` directory into the index -- run by Vulkan-Site's CI |
+| `build_index.py` | Parses a `combined_output` directory into the index, including `vuids`/`extensions`/`struct_fields` tables parsed out of refpage content and `format_classes` parsed out of the spec's format-compatibility table -- run by Vulkan-Site's CI |
+| `fetch_spirv_grammar.py` | Downloads the SPIR-V core + extended-instruction-set grammar JSON from SPIRV-Headers |
+| `build_spirv_index.py` | Parses the downloaded grammar JSON into `spirv_instructions`/`spirv_capabilities` -- additive, run after `build_index.py` against the same DB |
+| `gpuinfo_client.py` | Thin client for the public vulkan.gpuinfo.org API (real device capability reports, driver coverage) -- disk-cached, proof-of-concept usage constraints documented in its module docstring |
+| `profile_builder.py` | Pure function compiling a Vulkan Profile from a set of `gpuinfo_client` reports -- the guaranteed intersection across the given devices, no authored opinion |
 | `mcp_server.py` | MCP server (stdio or HTTP) wrapping `store.py`'s query API |
 | `fetch_release.py` | Downloads the published index from a GitHub Release -- run by a systemd timer on the host |
 | `deploy_box.py` | Host-side setup (system user, venv, systemd units, nginx block) |
 | `deploy_firewall.py` | Opens the public port on the host's cloud project -- run from an operator machine, not the host |
 | `requirements.txt` | `mcp`, `uvicorn` |
+
+## Available MCP tools
+
+- `search_docs` / `get_page` / `list_pages` / `index_status` -- full-text search and browsing over the whole corpus (see docstrings in `mcp_server.py`). `search_docs` takes an optional `components` filter (e.g. `["guide", "tutorial"]`) to scope code-generation/"how do I do X in modern Vulkan" queries to current usage guidance instead of version-agnostic refpages or raw spec chapters.
+- `lookup_vuid(vuid)` -- exact-match resolution of a Valid Usage ID (e.g. `VUID-vkCmdDraw-magFilter-04553`) from a validation-layer error straight to its explanation text, instead of a text search.
+- `extension_info(name)` / `list_extensions(vendor=, promoted_only=)` -- extension type, dependencies, ratification status, and promotion/deprecation state, parsed out of each extension's refpage.
+- `get_field(type_name, field_name)` / `list_fields(type_name)` -- exact-match description of one struct member (e.g. `VkBufferCreateInfo` / `sharingMode`) or enum value (e.g. `VkSharingMode` / `VK_SHARING_MODE_CONCURRENT`), or all of a type's fields/values at once.
+- `modernize_check(names)` -- checks a list of extension names against the spec's own promotion/deprecation records, to steer generated/reviewed code away from Vulkan-1.0-era extensions toward what superseded them. Not curated opinion -- parsed straight from each extension's "Deprecation State" field (see `_parse_deprecation()` in `build_index.py`).
+- `resolve_dependencies(name)` -- recursively resolves one extension's full transitive dependency tree (extensions + core versions), with each node's raw dependency text preserved since it can express AND/OR logic this doesn't parse.
+- `annotate_struct(type_name, values)` -- pairs a captured/decoded struct's field->value map with each field's description via `get_field`, for explaining debugger-captured state in one call.
+- `explain(text)` -- the composite entry point: auto-detects and resolves every VUID/extension/type/SPIR-V opcode mentioned anywhere in an arbitrary blob (raw validation-layer stderr, a struct dump, a shader log), so a calling agent doesn't need to know our schema well enough to pick the right tool per token.
+- `format_compatibility(format_name)` -- a VkFormat's compatibility class, texel block size/extent, and every other format in that class, parsed from the spec's own "Format Compatibility Classes" table. Static spec fact only -- doesn't cover runtime-dependent format *feature* support (see "Known limitations" below for why).
+- `spirv_opcode(name_or_number)` / `spirv_capability(name)` -- SPIR-V instruction and capability lookup across the core grammar plus GLSL.std.450, OpenCL.std, and the NonSemantic.Shader.DebugInfo.100/DebugPrintf extended instruction sets (see `fetch_spirv_grammar.py`'s docstring for why those sets specifically).
+- `gpuinfo_report(report_id)` / `gpuinfo_driver_coverage(kind, value, ...)` -- real device capability reports and "which devices/driver versions actually support X" queries against vulkan.gpuinfo.org's public API. Proof-of-concept scope -- see `gpuinfo_client.py`'s module docstring for the usage constraints that come with the public API.
+- `gpuinfo_profile(report_id)` -- passthrough to gpuinfo.org's own profile-generation endpoint. Currently returns HTTP 500 upstream for every report tried (as of 2026-09-25) -- looks broken server-side, kept as a thin passthrough in case it's fixed. Use `build_profile_from_reports` instead for now.
+- `build_profile_from_reports(report_ids, name, api_version, ...)` -- compiles a Vulkan-Profiles-schema JSON from a set of real gpuinfo.org device reports: the guaranteed intersection (extensions/features common to all, numeric limits as the elementwise minimum) across the devices the caller picks. Every extension in the result is cross-checked against this index's own `extensions` table and `modernize_check` status. Not an opinion layer -- see `profile_builder.py`'s module docstring.
+
+The SPIR-V tables are a separate, non-Vulkan-Site data source (SPIRV-Headers) and aren't part of the CI-published index yet -- run `fetch_spirv_grammar.py` then `build_spirv_index.py --db <DB_PATH>` locally to populate them.
 
 ## Known limitations (v1)
 
@@ -184,3 +206,22 @@ installs the `vulkan-docs-index-fetch` timer/service and
   extension.
 - No embeddings/vector search -- FTS5 full-text only. Revisit if keyword
   search proves insufficient for how this is actually queried.
+- `_extract_fields()`'s bullet parser (in `build_index.py`) reads a
+  struct/enum's member/value list off simple textual cues, not a real
+  parse of the page structure. It has no way to tell "end of the last
+  value's description" from "start of unrelated prose that happens not to
+  contain another top-level bullet" -- on pages where the final field is
+  followed directly by long free-form prose (rather than a Valid Usage
+  list, which reliably starts its own bullets), that prose gets appended
+  to the last field's description. Good enough for "what does this field
+  mean," not guaranteed to stop at exactly the right place for every type.
+- `format_classes` only covers the spec's "Format Compatibility Classes"
+  table -- static, one class per row, cleanly delimited. The spec's
+  per-format *mandatory feature support* tables (e.g. which formats must
+  support `VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT`) live in the same page
+  but as Markdown tables with merged cells the Antora->Markdown dump
+  flattens into ambiguous "↓" (same-as-above) and blank-cell artifacts --
+  deliberately not parsed, since a wrong answer here (silently mis-mapping
+  a feature bit to a format) is worse than no answer. Feature support is
+  also genuinely runtime/implementation-dependent for most formats, not a
+  static fact -- query `vkGetPhysicalDeviceFormatProperties` for that.
